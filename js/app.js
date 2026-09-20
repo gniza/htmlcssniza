@@ -295,11 +295,11 @@ function renderTransacoes() {
     .map(
       (t) => `
     <tr>
-      <td>${formatDate(t.data)}</td>
-      <td>${escapeHtml(t.descricao)}</td>
-      <td>${escapeHtml(t.categoria)}</td>
-      <td><span class="type-tag ${t.tipo}">${t.tipo === "entrada" ? "Entrada" : "Saída"}</span></td>
-      <td class="align-right tx-value ${t.tipo}">${t.tipo === "entrada" ? "+" : "-"} ${formatCurrency(t.valor)}</td>
+      <td data-label="Data">${formatDate(t.data)}</td>
+      <td data-label="Descrição">${escapeHtml(t.descricao)}</td>
+      <td data-label="Categoria">${escapeHtml(t.categoria)}</td>
+      <td data-label="Tipo"><span class="type-tag ${t.tipo}">${t.tipo === "entrada" ? "Entrada" : "Saída"}</span></td>
+      <td data-label="Valor" class="align-right tx-value ${t.tipo}">${t.tipo === "entrada" ? "+" : "-"} ${formatCurrency(t.valor)}</td>
       <td>
         <div class="row-actions">
           <button data-edit="${t.id}" title="Editar">✏️</button>
@@ -348,9 +348,9 @@ function renderSalario() {
     .map(
       (t) => `
     <tr>
-      <td>${formatDate(t.data)}</td>
-      <td>${escapeHtml(t.descricao)}</td>
-      <td class="align-right tx-value entrada">+ ${formatCurrency(t.valor)}</td>
+      <td data-label="Data">${formatDate(t.data)}</td>
+      <td data-label="Descrição">${escapeHtml(t.descricao)}</td>
+      <td data-label="Valor" class="align-right tx-value entrada">+ ${formatCurrency(t.valor)}</td>
       <td>
         <div class="row-actions">
           <button data-edit="${t.id}" title="Editar">✏️</button>
@@ -464,4 +464,15 @@ document.addEventListener("DOMContentLoaded", () => {
   initFilters();
   initDados();
   renderAll();
+
+  // redesenha os gráficos ao rotacionar o aparelho / redimensionar a janela
+  let resizeTimer;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (document.getElementById("view-dashboard").classList.contains("active")) {
+        renderDashboard();
+      }
+    }, 150);
+  });
 });
