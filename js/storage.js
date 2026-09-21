@@ -2,13 +2,32 @@
 
 const STORAGE_KEY = "fincrm.data.v1";
 
+const DEFAULT_POCKETS = [
+  { id: "porquinho", nome: "Porquinho", tipo: "porquinho", taxaAnual: 10.65, fixed: true, saldoInicialTxId: null },
+  { id: "especie", nome: "Dinheiro em espécie", tipo: "especie", taxaAnual: null, fixed: true, saldoInicialTxId: null },
+];
+
 const DEFAULT_DATA = {
-  transactions: [], // { id, tipo: 'entrada'|'saida', descricao, valor, data: 'YYYY-MM-DD', categoria, isSalario: bool }
+  // transaction: { id, tipo: 'entrada'|'saida', descricao, valor, data: 'YYYY-MM-DD', categoria,
+  //   contaId: 'corrente'|'porquinho'|'especie'|<metaId>, isSalario, isTransferencia, isSaldoInicial }
+  transactions: [],
   categories: {
     entrada: ["Salário", "Freelance", "Investimentos", "Outros"],
     saida: ["Moradia", "Alimentação", "Transporte", "Contas", "Saúde", "Lazer", "Outros"],
   },
+  pockets: DEFAULT_POCKETS,
 };
+
+function normalizePockets(pockets) {
+  const list = Array.isArray(pockets) ? pockets : [];
+  const withFixed = [...list];
+  DEFAULT_POCKETS.forEach((fixedPocket) => {
+    if (!withFixed.some((p) => p.id === fixedPocket.id)) {
+      withFixed.unshift({ ...fixedPocket });
+    }
+  });
+  return withFixed;
+}
 
 function loadData() {
   try {
@@ -21,6 +40,7 @@ function loadData() {
         entrada: parsed.categories?.entrada?.length ? parsed.categories.entrada : DEFAULT_DATA.categories.entrada,
         saida: parsed.categories?.saida?.length ? parsed.categories.saida : DEFAULT_DATA.categories.saida,
       },
+      pockets: normalizePockets(parsed.pockets),
     };
   } catch (err) {
     console.error("Falha ao carregar dados, usando padrão.", err);
@@ -44,7 +64,7 @@ const Store = {
   },
 
   addTransaction(tx) {
-    const record = { id: uid(), ...tx };
+    const record = { id: uid(), contaId: "corrente", ...tx };
     this.data.transactions.push(record);
     this.persist();
     return record;
@@ -86,6 +106,39 @@ const Store = {
     return [...this.data.categories[tipo]];
   },
 
+  /* ---------- COFRES (contas internas: porquinho, metas, espécie) ---------- */
+
+  getPockets() {
+    return [...this.data.pockets];
+  },
+
+  getPocket(id) {
+    return this.data.pockets.find((p) => p.id === id) || null;
+  },
+
+  addPocket(pocket) {
+    const record = { id: uid(), tipo: "meta", taxaAnual: 0, saldoInicialTxId: null, fixed: false, ...pocket };
+    this.data.pockets.push(record);
+    this.persist();
+    return record;
+  },
+
+  updatePocket(id, updates) {
+    const idx = this.data.pockets.findIndex((p) => p.id === id);
+    if (idx === -1) return null;
+    this.data.pockets[idx] = { ...this.data.pockets[idx], ...updates };
+    this.persist();
+    return this.data.pockets[idx];
+  },
+
+  deletePocket(id) {
+    const pocket = this.getPocket(id);
+    if (!pocket || pocket.fixed) return false;
+    this.data.pockets = this.data.pockets.filter((p) => p.id !== id);
+    this.persist();
+    return true;
+  },
+
   exportJSON() {
     return JSON.stringify(this.data, null, 2);
   },
@@ -101,6 +154,7 @@ const Store = {
         entrada: parsed.categories?.entrada?.length ? parsed.categories.entrada : DEFAULT_DATA.categories.entrada,
         saida: parsed.categories?.saida?.length ? parsed.categories.saida : DEFAULT_DATA.categories.saida,
       },
+      pockets: normalizePockets(parsed.pockets),
     };
     this.persist();
   },

@@ -35,6 +35,7 @@
       <button class="nav-item active" data-view="dashboard"><span class="nav-icon">📊</span><span class="nav-label">Dashboard</span></button>
       <button class="nav-item" data-view="transacoes"><span class="nav-icon">📋</span><span class="nav-label">Transações</span></button>
       <button class="nav-item" data-view="salario"><span class="nav-icon">💵</span><span class="nav-label">Salário</span></button>
+      <button class="nav-item" data-view="cofres"><span class="nav-icon">🐷</span><span class="nav-label">Cofres</span></button>
       <button class="nav-item" data-view="categorias"><span class="nav-icon">🏷️</span><span class="nav-label">Categorias</span></button>
       <button class="nav-item" data-view="dados"><span class="nav-icon">⚙️</span><span class="nav-label">Dados</span></button>
     </nav>
@@ -120,6 +121,7 @@
               <th>Data</th>
               <th>Descrição</th>
               <th>Categoria</th>
+              <th>Conta</th>
               <th>Tipo</th>
               <th class="align-right">Valor</th>
               <th></th>
@@ -167,6 +169,43 @@
           <tbody id="salaryTableBody"></tbody>
         </table>
         <p id="salaryEmptyState" class="empty-state" hidden>Nenhum salário registrado ainda.</p>
+      </div>
+    </section>
+
+    <!-- COFRES -->
+    <section id="view-cofres" class="view">
+      <header class="view-header">
+        <h1>Cofres</h1>
+      </header>
+
+      <div class="cards">
+        <div class="card card-income">
+          <div class="card-label">Rendendo por dia</div>
+          <div class="card-value" id="cardYieldDay">R$ 0,00</div>
+        </div>
+        <div class="card card-income">
+          <div class="card-label">Rendendo por mês</div>
+          <div class="card-value" id="cardYieldMonth">R$ 0,00</div>
+        </div>
+        <div class="card card-income">
+          <div class="card-label">Rendendo por ano</div>
+          <div class="card-value" id="cardYieldYear">R$ 0,00</div>
+        </div>
+        <div class="card card-total">
+          <div class="card-label">Total guardado nos cofres</div>
+          <div class="card-value" id="cardPocketsTotal">R$ 0,00</div>
+        </div>
+      </div>
+
+      <div id="fixedPocketsList" class="pocket-grid"></div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Porquinhos de meta</h2>
+          <button class="btn btn-primary" data-open-modal="meta">+ Nova meta</button>
+        </div>
+        <div id="metasList" class="pocket-grid"></div>
+        <p id="metasEmptyState" class="empty-state" hidden>Nenhuma meta criada ainda. Crie uma para guardar dinheiro com um objetivo, como o Inter faz nas Caixinhas.</p>
       </div>
     </section>
 
@@ -232,6 +271,13 @@
         <label class="radio-pill"><input type="radio" name="tipo" value="saida"><span>Saída</span></label>
       </div>
       <div class="form-row">
+        <label for="txConta">Conta</label>
+        <select id="txConta">
+          <option value="corrente">Conta corrente</option>
+          <option value="especie">Dinheiro em espécie</option>
+        </select>
+      </div>
+      <div class="form-row">
         <label for="txDescricao">Descrição</label>
         <input type="text" id="txDescricao" required placeholder="Ex: Supermercado, Freelance...">
       </div>
@@ -278,6 +324,88 @@
           <label for="salData">Data de recebimento</label>
           <input type="date" id="salData" required>
         </div>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" data-close-modal>Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL: TRANSFERÊNCIA (guardar / resgatar) -->
+<div class="modal-overlay" id="modalTransferencia" hidden>
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modalTransferenciaTitle">Guardar</h2>
+      <button class="btn-icon" data-close-modal>&times;</button>
+    </div>
+    <form id="formTransferencia">
+      <input type="hidden" id="transfPocketId">
+      <input type="hidden" id="transfDirecao">
+      <div class="form-row">
+        <label for="transfValor">Valor (R$)</label>
+        <input type="number" id="transfValor" min="0.01" step="0.01" required placeholder="0,00">
+      </div>
+      <div class="form-row">
+        <label for="transfData">Data</label>
+        <input type="date" id="transfData" required>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" data-close-modal>Cancelar</button>
+        <button type="submit" class="btn btn-primary">Confirmar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL: SALDO INICIAL DO COFRE -->
+<div class="modal-overlay" id="modalSaldoInicial" hidden>
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modalSaldoInicialTitle">Definir saldo inicial</h2>
+      <button class="btn-icon" data-close-modal>&times;</button>
+    </div>
+    <form id="formSaldoInicial">
+      <input type="hidden" id="siPocketId">
+      <p class="modal-hint">Informe quanto você já tem guardado aqui hoje. Isso não mexe no saldo da conta corrente — é só para o app saber o ponto de partida.</p>
+      <div class="form-row">
+        <label for="siValor">Valor atual (R$)</label>
+        <input type="number" id="siValor" min="0" step="0.01" required placeholder="0,00">
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" data-close-modal>Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL: PORQUINHO DE META (criar / editar cofre) -->
+<div class="modal-overlay" id="modalMeta" hidden>
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modalMetaTitle">Nova meta</h2>
+      <button class="btn-icon" data-close-modal>&times;</button>
+    </div>
+    <form id="formMeta">
+      <input type="hidden" id="metaId">
+      <input type="hidden" id="metaTipo">
+      <div class="form-row">
+        <label for="metaNome">Nome</label>
+        <input type="text" id="metaNome" required placeholder="Ex: Viagem, Reserva de emergência...">
+      </div>
+      <div class="form-row" id="metaValorRow">
+        <label for="metaValor">Valor objetivo (R$)</label>
+        <input type="number" id="metaValor" min="0.01" step="0.01" placeholder="0,00">
+      </div>
+      <div class="form-row" id="metaTaxaRow">
+        <label for="metaTaxa">Rendimento (% ao ano)</label>
+        <input type="number" id="metaTaxa" min="0" step="0.01" placeholder="10,65">
+      </div>
+      <div class="form-row" id="metaDataRow">
+        <label for="metaData">Data alvo (opcional)</label>
+        <input type="date" id="metaData">
       </div>
       <div class="form-actions">
         <button type="button" class="btn btn-ghost" data-close-modal>Cancelar</button>

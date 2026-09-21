@@ -28,6 +28,27 @@ function monthKey(year, month) {
   return `${year}-${String(month + 1).padStart(2, "0")}`;
 }
 
+function getPocketBalance(contaId) {
+  return Store.data.transactions
+    .filter((t) => (t.contaId || "corrente") === contaId)
+    .reduce((s, t) => s + (t.tipo === "entrada" ? t.valor : -t.valor), 0);
+}
+
+function getPocketName(contaId) {
+  if (!contaId || contaId === "corrente") return "Conta corrente";
+  const pocket = Store.getPocket(contaId);
+  return pocket ? pocket.nome : "Conta corrente";
+}
+
+// Taxas diária/mensal equivalentes a uma taxa efetiva anual (juros compostos, base 365 dias).
+function dailyRateFromAnnual(annualPct) {
+  return Math.pow(1 + (annualPct || 0) / 100, 1 / 365) - 1;
+}
+
+function monthlyRateFromAnnual(annualPct) {
+  return Math.pow(1 + (annualPct || 0) / 100, 1 / 12) - 1;
+}
+
 function showToast(msg) {
   const toast = document.getElementById("toast");
   toast.textContent = msg;
@@ -58,6 +79,7 @@ function initModals() {
       const type = btn.dataset.openModal;
       if (type === "transacao") openTransacaoModal();
       if (type === "salario") openSalarioModal();
+      if (type === "meta") openMetaModal();
     });
   });
   document.querySelectorAll("[data-close-modal]").forEach((btn) => {
@@ -90,6 +112,7 @@ function openTransacaoModal(tx = null) {
   form.querySelector(`input[name="tipo"][value="${tipo}"]`).checked = true;
   populateCategorySelect(document.getElementById("txCategoria"), tipo);
 
+  document.getElementById("txConta").value = tx?.contaId === "especie" ? "especie" : "corrente";
   document.getElementById("txDescricao").value = tx?.descricao || "";
   document.getElementById("txValor").value = tx?.valor ?? "";
   document.getElementById("txData").value = tx?.data || todayISO();
@@ -117,6 +140,7 @@ function initForms() {
     const tipo = document.querySelector('input[name="tipo"]:checked').value;
     const payload = {
       tipo,
+      contaId: document.getElementById("txConta").value,
       descricao: document.getElementById("txDescricao").value.trim(),
       valor: parseFloat(document.getElementById("txValor").value),
       data: document.getElementById("txData").value,
@@ -166,6 +190,126 @@ function initForms() {
       }
     });
   });
+
+  document.getElementById("formTransferencia").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const pocketId = document.getElementById("transfPocketId").value;
+    const direcao = document.getElementById("transfDirecao").value;
+    const pocket = Store.getPocket(pocketId);
+    const valor = parseFloat(document.getElementById("transfValor").value);
+    const data = document.getElementById("transfData").value;
+    const transferId = uid();
+
+    if (direcao === "guardar") {
+      Store.addTransaction({ tipo: "saida", contaId: "corrente", valor, data, categoria: "Transferência", descricao: `Transferência para ${pocket.nome}`, isTransferencia: true, transferId });
+      Store.addTransaction({ tipo: "entrada", contaId: pocketId, valor, data, categoria: "Transferência", descricao: "Transferência de Conta corrente", isTransferencia: true, transferId });
+    } else {
+      Store.addTransaction({ tipo: "saida", contaId: pocketId, valor, data, categoria: "Transferência", descricao: "Transferência para Conta corrente", isTransferencia: true, transferId });
+      Store.addTransaction({ tipo: "entrada", contaId: "corrente", valor, data, categoria: "Transferência", descricao: `Transferência de ${pocket.nome}`, isTransferencia: true, transferId });
+    }
+
+    showToast("Transferência registrada.");
+    closeModals();
+    renderAll();
+  });
+
+  document.getElementById("formSaldoInicial").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const pocketId = document.getElementById("siPocketId").value;
+    const pocket = Store.getPocket(pocketId);
+    const valor = parseFloat(document.getElementById("siValor").value);
+
+    if (pocket.saldoInicialTxId && Store.data.transactions.some((t) => t.id === pocket.saldoInicialTxId)) {
+      Store.updateTransaction(pocket.saldoInicialTxId, { valor });
+    } else {
+      const tx = Store.addTransaction({
+        tipo: "entrada",
+        contaId: pocketId,
+        valor,
+        data: pocket.criadoEm || todayISO(),
+        categoria: "Saldo inicial",
+        descricao: "Saldo inicial",
+        isSaldoInicial: true,
+      });
+      Store.updatePocket(pocketId, { saldoInicialTxId: tx.id });
+    }
+    showToast("Saldo inicial atualizado.");
+    closeModals();
+    renderAll();
+  });
+
+  document.getElementById("formMeta").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const id = document.getElementById("metaId").value;
+    const tipoAtual = document.getElementById("metaTipo").value || "meta";
+    const taxaVal = document.getElementById("metaTaxa").value;
+    const updates = { nome: document.getElementById("metaNome").value.trim() };
+    if (tipoAtual !== "especie") {
+      updates.taxaAnual = taxaVal === "" ? 0 : parseFloat(taxaVal);
+    }
+    if (tipoAtual === "meta") {
+      updates.metaValor = parseFloat(document.getElementById("metaValor").value);
+      updates.metaData = document.getElementById("metaData").value || null;
+    }
+
+    if (id) {
+      Store.updatePocket(id, updates);
+      showToast("Cofre atualizado.");
+    } else {
+      Store.addPocket({ ...updates, tipo: "meta", criadoEm: todayISO() });
+      showToast("Meta criada.");
+    }
+    closeModals();
+    renderAll();
+  });
+}
+
+function openTransferModal(pocketId, direcao) {
+  const pocket = Store.getPocket(pocketId);
+  if (!pocket) return;
+  document.getElementById("formTransferencia").reset();
+  document.getElementById("transfPocketId").value = pocketId;
+  document.getElementById("transfDirecao").value = direcao;
+  document.getElementById("transfData").value = todayISO();
+
+  const acao = direcao === "guardar"
+    ? (pocket.tipo === "especie" ? "Sacar da conta" : `Guardar no ${pocket.nome}`)
+    : (pocket.tipo === "especie" ? "Depositar na conta" : `Resgatar do ${pocket.nome}`);
+  document.getElementById("modalTransferenciaTitle").textContent = acao;
+
+  document.getElementById("modalTransferencia").hidden = false;
+}
+
+function openSaldoInicialModal(pocketId) {
+  const pocket = Store.getPocket(pocketId);
+  if (!pocket) return;
+  document.getElementById("formSaldoInicial").reset();
+  document.getElementById("siPocketId").value = pocketId;
+  document.getElementById("modalSaldoInicialTitle").textContent = `Saldo inicial — ${pocket.nome}`;
+  const existing = pocket.saldoInicialTxId ? Store.data.transactions.find((t) => t.id === pocket.saldoInicialTxId) : null;
+  document.getElementById("siValor").value = existing ? existing.valor : "";
+  document.getElementById("modalSaldoInicial").hidden = false;
+}
+
+function openMetaModal(pocket = null) {
+  const form = document.getElementById("formMeta");
+  form.reset();
+  document.getElementById("metaId").value = pocket?.id || "";
+  const tipo = pocket?.tipo || "meta";
+  document.getElementById("metaTipo").value = tipo;
+  document.getElementById("modalMetaTitle").textContent = pocket ? `Editar ${pocket.nome}` : "Nova meta";
+
+  document.getElementById("metaNome").value = pocket?.nome || "";
+  document.getElementById("metaValor").value = pocket?.metaValor ?? "";
+  document.getElementById("metaTaxa").value = pocket ? (pocket.taxaAnual ?? "") : 10.65;
+  document.getElementById("metaData").value = pocket?.metaData || "";
+
+  document.getElementById("metaValorRow").hidden = tipo !== "meta";
+  document.getElementById("metaDataRow").hidden = tipo !== "meta";
+  document.getElementById("metaTaxaRow").hidden = tipo === "especie";
+  document.getElementById("metaValor").required = tipo === "meta";
+
+  document.getElementById("modalMeta").hidden = false;
 }
 
 /* ---------- DASHBOARD ---------- */
@@ -189,8 +333,11 @@ function renderDashboard() {
   const all = Store.getTransactions();
   const monthTx = all.filter((t) => t.data.startsWith(key));
 
-  const income = monthTx.filter((t) => t.tipo === "entrada").reduce((s, t) => s + t.valor, 0);
-  const expense = monthTx.filter((t) => t.tipo === "saida").reduce((s, t) => s + t.valor, 0);
+  // transferências entre cofres e o saldo inicial não são renda/gasto real — ficam de fora dessas somas
+  const isMovimentoReal = (t) => !t.isTransferencia && !t.isSaldoInicial;
+  const income = monthTx.filter((t) => t.tipo === "entrada" && isMovimentoReal(t)).reduce((s, t) => s + t.valor, 0);
+  const expense = monthTx.filter((t) => t.tipo === "saida" && isMovimentoReal(t)).reduce((s, t) => s + t.valor, 0);
+  // já a soma total considera tudo: conta corrente + porquinho + metas + espécie (as transferências se cancelam entre si)
   const totalAll = all.reduce((s, t) => s + (t.tipo === "entrada" ? t.valor : -t.valor), 0);
 
   document.getElementById("cardIncome").textContent = formatCurrency(income);
@@ -209,14 +356,14 @@ function renderDashboard() {
     const k = monthKey(y, m);
     const txs = all.filter((t) => t.data.startsWith(k));
     labels.push(MONTH_NAMES[m].slice(0, 3));
-    incomeData.push(txs.filter((t) => t.tipo === "entrada").reduce((s, t) => s + t.valor, 0));
-    expenseData.push(txs.filter((t) => t.tipo === "saida").reduce((s, t) => s + t.valor, 0));
+    incomeData.push(txs.filter((t) => t.tipo === "entrada" && isMovimentoReal(t)).reduce((s, t) => s + t.valor, 0));
+    expenseData.push(txs.filter((t) => t.tipo === "saida" && isMovimentoReal(t)).reduce((s, t) => s + t.valor, 0));
   }
   drawBarChart(document.getElementById("chartBars"), labels, incomeData, expenseData);
 
   // donut: saídas por categoria no mês
   const byCategory = {};
-  monthTx.filter((t) => t.tipo === "saida").forEach((t) => {
+  monthTx.filter((t) => t.tipo === "saida" && isMovimentoReal(t)).forEach((t) => {
     byCategory[t.categoria] = (byCategory[t.categoria] || 0) + t.valor;
   });
   const entries = Object.entries(byCategory)
@@ -298,11 +445,12 @@ function renderTransacoes() {
       <td data-label="Data">${formatDate(t.data)}</td>
       <td data-label="Descrição">${escapeHtml(t.descricao)}</td>
       <td data-label="Categoria">${escapeHtml(t.categoria)}</td>
+      <td data-label="Conta">${escapeHtml(getPocketName(t.contaId))}</td>
       <td data-label="Tipo"><span class="type-tag ${t.tipo}">${t.tipo === "entrada" ? "Entrada" : "Saída"}</span></td>
       <td data-label="Valor" class="align-right tx-value ${t.tipo}">${t.tipo === "entrada" ? "+" : "-"} ${formatCurrency(t.valor)}</td>
       <td>
         <div class="row-actions">
-          <button data-edit="${t.id}" title="Editar">✏️</button>
+          ${t.isTransferencia || t.isSaldoInicial ? "" : `<button data-edit="${t.id}" title="Editar">✏️</button>`}
           <button data-delete="${t.id}" title="Excluir">🗑️</button>
         </div>
       </td>
@@ -318,13 +466,35 @@ function renderTransacoes() {
   });
   tbody.querySelectorAll("[data-delete]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      if (confirm("Excluir esta transação?")) {
-        Store.deleteTransaction(btn.dataset.delete);
+      const tx = Store.data.transactions.find((t) => t.id === btn.dataset.delete);
+      const msg = tx?.isTransferencia
+        ? "Excluir esta transferência? As duas movimentações (origem e destino) serão removidas."
+        : "Excluir esta transação?";
+      if (confirm(msg)) {
+        deleteTransactionSmart(btn.dataset.delete);
         showToast("Transação excluída.");
         renderAll();
       }
     });
   });
+}
+
+// Remove transações "ligadas": as duas pernas de uma transferência juntas,
+// e libera o cofre para receber um novo saldo inicial quando aplicável.
+function deleteTransactionSmart(id) {
+  const tx = Store.data.transactions.find((t) => t.id === id);
+  if (!tx) return;
+  if (tx.isTransferencia && tx.transferId) {
+    Store.data.transactions
+      .filter((t) => t.transferId === tx.transferId)
+      .forEach((t) => Store.deleteTransaction(t.id));
+    return;
+  }
+  Store.deleteTransaction(id);
+  if (tx.isSaldoInicial) {
+    const pocket = Store.data.pockets.find((p) => p.saldoInicialTxId === id);
+    if (pocket) Store.updatePocket(pocket.id, { saldoInicialTxId: null });
+  }
 }
 
 /* ---------- SALÁRIO ---------- */
@@ -372,6 +542,115 @@ function renderSalario() {
       if (confirm("Excluir este registro de salário?")) {
         Store.deleteTransaction(btn.dataset.delete);
         showToast("Registro excluído.");
+        renderAll();
+      }
+    });
+  });
+}
+
+/* ---------- COFRES (porquinho, metas, dinheiro em espécie) ---------- */
+
+function renderCofres() {
+  const pockets = Store.getPockets();
+  const fixed = pockets.filter((p) => p.fixed);
+  const metas = pockets.filter((p) => !p.fixed);
+
+  let totalGeral = 0;
+  let yieldDay = 0;
+  let yieldMonth = 0;
+  let yieldYear = 0;
+
+  const buildCard = (pocket) => {
+    const saldo = getPocketBalance(pocket.id);
+    totalGeral += saldo;
+
+    let yieldHtml = "";
+    if (pocket.tipo !== "especie" && pocket.taxaAnual > 0) {
+      const day = saldo * dailyRateFromAnnual(pocket.taxaAnual);
+      const month = saldo * monthlyRateFromAnnual(pocket.taxaAnual);
+      const year = saldo * (pocket.taxaAnual / 100);
+      yieldDay += day;
+      yieldMonth += month;
+      yieldYear += year;
+      yieldHtml = `
+        <div class="yield-row">
+          <div><span>Por dia</span><strong>${formatCurrency(day)}</strong></div>
+          <div><span>Por mês</span><strong>${formatCurrency(month)}</strong></div>
+          <div><span>Por ano</span><strong>${formatCurrency(year)}</strong></div>
+        </div>`;
+    }
+
+    let progressHtml = "";
+    if (pocket.tipo === "meta" && pocket.metaValor > 0) {
+      const pct = Math.min(100, (saldo / pocket.metaValor) * 100);
+      const faltam = Math.max(0, pocket.metaValor - saldo);
+      progressHtml = `
+        <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+        <div class="pocket-meta-info">${pct.toFixed(0)}% de ${formatCurrency(pocket.metaValor)}${faltam > 0 ? ` · faltam ${formatCurrency(faltam)}` : " · meta concluída 🎉"}${pocket.metaData ? ` · até ${formatDate(pocket.metaData)}` : ""}</div>`;
+    }
+
+    const guardarLabel = pocket.tipo === "especie" ? "Sacar" : "Guardar";
+    const resgatarLabel = pocket.tipo === "especie" ? "Depositar" : "Resgatar";
+    const rateLabel =
+      pocket.tipo === "especie"
+        ? ""
+        : `<div class="pocket-rate${pocket.taxaAnual > 0 ? "" : " muted"}">${pocket.taxaAnual > 0 ? `${String(pocket.taxaAnual).replace(".", ",")}% a.a.` : "sem rendimento definido"}</div>`;
+    const deleteBtn = pocket.fixed ? "" : `<button class="btn btn-danger" data-delete-pocket="${pocket.id}">Excluir</button>`;
+
+    return `
+      <div class="pocket-card">
+        <div class="pocket-card-header">
+          <div>
+            <div class="pocket-name">${pocket.tipo === "especie" ? "💵" : "🐷"} ${escapeHtml(pocket.nome)}</div>
+            ${rateLabel}
+          </div>
+          <button class="btn-icon" data-edit-pocket="${pocket.id}" title="Editar">✏️</button>
+        </div>
+        <div class="pocket-balance">${formatCurrency(saldo)}</div>
+        ${progressHtml}
+        ${yieldHtml}
+        <div class="pocket-actions">
+          <button class="btn btn-ghost" data-transfer="${pocket.id}|guardar">${guardarLabel}</button>
+          <button class="btn btn-ghost" data-transfer="${pocket.id}|resgatar">${resgatarLabel}</button>
+          <button class="btn btn-ghost" data-saldo-inicial="${pocket.id}">Saldo inicial</button>
+          ${deleteBtn}
+        </div>
+      </div>`;
+  };
+
+  document.getElementById("fixedPocketsList").innerHTML = fixed.map(buildCard).join("");
+  document.getElementById("metasList").innerHTML = metas.map(buildCard).join("");
+  document.getElementById("metasEmptyState").hidden = metas.length !== 0;
+
+  document.getElementById("cardYieldDay").textContent = formatCurrency(yieldDay);
+  document.getElementById("cardYieldMonth").textContent = formatCurrency(yieldMonth);
+  document.getElementById("cardYieldYear").textContent = formatCurrency(yieldYear);
+  document.getElementById("cardPocketsTotal").textContent = formatCurrency(totalGeral);
+
+  bindPocketActions();
+}
+
+function bindPocketActions() {
+  document.querySelectorAll("[data-transfer]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const [pocketId, direcao] = btn.dataset.transfer.split("|");
+      openTransferModal(pocketId, direcao);
+    });
+  });
+  document.querySelectorAll("[data-saldo-inicial]").forEach((btn) => {
+    btn.addEventListener("click", () => openSaldoInicialModal(btn.dataset.saldoInicial));
+  });
+  document.querySelectorAll("[data-edit-pocket]").forEach((btn) => {
+    btn.addEventListener("click", () => openMetaModal(Store.getPocket(btn.dataset.editPocket)));
+  });
+  document.querySelectorAll("[data-delete-pocket]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const pocket = Store.getPocket(btn.dataset.deletePocket);
+      const saldo = getPocketBalance(btn.dataset.deletePocket);
+      const aviso = saldo > 0 ? ` Ainda há ${formatCurrency(saldo)} registrado aqui — esse valor sairá do saldo total.` : "";
+      if (confirm(`Excluir "${pocket.nome}"?${aviso}`)) {
+        Store.deletePocket(btn.dataset.deletePocket);
+        showToast("Cofre excluído.");
         renderAll();
       }
     });
@@ -451,6 +730,7 @@ function renderAll() {
   renderDashboard();
   renderTransacoes();
   renderSalario();
+  renderCofres();
   renderCategorias();
 }
 
