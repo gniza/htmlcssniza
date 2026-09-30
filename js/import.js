@@ -16,6 +16,10 @@
 
 let extratoRows = [];
 
+function pluralLancamento(n) {
+  return n === 1 ? "lançamento" : "lançamentos";
+}
+
 const CATEGORIA_KEYWORDS = {
   saida: [
     { categoria: "Alimentação", regex: /(ifood|restaurante|lanchonete|padaria|supermercado|mercado|a[çc]ougue|hortifruti)/i },
@@ -37,6 +41,22 @@ function guessCategoria(row) {
     if (regex.test(row.descricao)) return { categoria, isSalario: categoria === "Salário" };
   }
   return { categoria: "Outros", isSalario: false };
+}
+
+// Termos comuns em extratos do Inter para movimentações do Porquinho/RDB (aplicação = dinheiro
+// saindo da conta para o cofre; resgate = dinheiro voltando do cofre para a conta).
+const PORQUINHO_KEYWORDS = /(porquinho|\brdb\b|\bcdb\b|resgate|aplica[çc][ãa]o|poupan[çc]a|caixinha)/i;
+
+// Sugere, por palavra-chave na descrição, se um lançamento é provavelmente uma movimentação do
+// Porquinho — nunca aplicado sem revisão: é só o valor inicial do seletor "Cofre" na tela de import.
+function guessCofrePorquinho(row) {
+  return PORQUINHO_KEYWORDS.test(row.descricao) ? "porquinho" : "corrente";
+}
+
+// Monta as opções do seletor "Cofre": "lançamento normal" (sem transferência) + cada cofre existente.
+function cofreOptionsHtml(selectedId) {
+  const options = [{ id: "corrente", nome: "— lançamento normal —" }, ...Store.getPockets()];
+  return options.map((p) => `<option value="${p.id}" ${p.id === selectedId ? "selected" : ""}>${escapeHtml(p.nome)}</option>`).join("");
 }
 
 function parseBrazilianNumber(str) {
@@ -164,10 +184,10 @@ function initImportExtrato() {
         extratoRows = parsed.map((row, i) => {
           const guess = guessCategoria(row);
           const dup = isDuplicateTx(row, contaId);
-          return { id: i, ...row, categoria: guess.categoria, isSalario: guess.isSalario, dup, include: !dup };
+          return { id: i, ...row, categoria: guess.categoria, isSalario: guess.isSalario, dup, include: !dup, cofre: guessCofrePorquinho(row) };
         });
         renderExtratoPreview();
-        showToast(`${parsed.length} lançamentos encontrados.`);
+        showToast(`${parsed.length} ${pluralLancamento(parsed.length)} encontrado${parsed.length === 1 ? "" : "s"}.`);
       } catch (err) {
         showToast("Erro ao ler o arquivo: " + err.message);
       }
@@ -205,22 +225,40 @@ function initImportExtrato() {
       showToast("Nenhum lançamento selecionado.");
       return;
     }
+    let transferCount = 0;
     selecionados.forEach((row) => {
-      Store.addTransaction({
-        tipo: row.tipo,
-        contaId,
-        descricao: row.descricao,
-        valor: row.valor,
-        data: row.data,
-        categoria: row.categoria,
-        isSalario: !!row.isSalario,
-        isImportado: true,
-      });
-      if (!Store.getCategories(row.tipo).includes(row.categoria)) {
-        Store.addCategory(row.tipo, row.categoria);
+      if (row.cofre && row.cofre !== "corrente") {
+        // é uma movimentação do cofre (ex: aplicação/resgate do Porquinho) — lança como
+        // transferência de verdade, não como gasto/receita comum, e atualiza o saldo do cofre.
+        const transferId = uid();
+        if (row.tipo === "saida") {
+          Store.addTransaction({ tipo: "saida", contaId, valor: row.valor, data: row.data, categoria: "Transferência", descricao: row.descricao, isTransferencia: true, transferId, isImportado: true });
+          Store.addTransaction({ tipo: "entrada", contaId: row.cofre, valor: row.valor, data: row.data, categoria: "Transferência", descricao: `Transferência de Conta corrente (${row.descricao})`, isTransferencia: true, transferId, isImportado: true });
+        } else {
+          Store.addTransaction({ tipo: "entrada", contaId, valor: row.valor, data: row.data, categoria: "Transferência", descricao: row.descricao, isTransferencia: true, transferId, isImportado: true });
+          Store.addTransaction({ tipo: "saida", contaId: row.cofre, valor: row.valor, data: row.data, categoria: "Transferência", descricao: `Transferência para Conta corrente (${row.descricao})`, isTransferencia: true, transferId, isImportado: true });
+        }
+        transferCount++;
+      } else {
+        Store.addTransaction({
+          tipo: row.tipo,
+          contaId,
+          descricao: row.descricao,
+          valor: row.valor,
+          data: row.data,
+          categoria: row.categoria,
+          isSalario: !!row.isSalario,
+          isImportado: true,
+        });
+        if (!Store.getCategories(row.tipo).includes(row.categoria)) {
+          Store.addCategory(row.tipo, row.categoria);
+        }
       }
     });
-    showToast(`${selecionados.length} lançamentos importados.`);
+    showToast(
+      `${selecionados.length} ${pluralLancamento(selecionados.length)} importado${selecionados.length === 1 ? "" : "s"}` +
+        (transferCount ? ` (${transferCount} como transferência de cofre).` : ".")
+    );
     extratoRows = [];
     document.getElementById("extratoPreviewPanel").hidden = true;
     renderAll();
@@ -255,6 +293,9 @@ function renderExtratoPreview() {
           ${cats.map((c) => `<option value="${escapeHtml(c)}" ${c === row.categoria ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}
         </select>
       </td>
+      <td data-label="Cofre">
+        <select class="cell-input" data-row-cofre="${row.id}">${cofreOptionsHtml(row.cofre)}</select>
+      </td>
     </tr>`;
     })
     .join("");
@@ -270,9 +311,116 @@ function renderExtratoPreview() {
       extratoRows.find((r) => r.id === Number(el.dataset.rowDesc)).descricao = el.value;
     });
   });
+  tbody.querySelectorAll("[data-row-cofre]").forEach((el) => {
+    el.addEventListener("change", () => {
+      extratoRows.find((r) => r.id === Number(el.dataset.rowCofre)).cofre = el.value;
+    });
+  });
   tbody.querySelectorAll("[data-row-cat]").forEach((el) => {
     el.addEventListener("change", () => {
       extratoRows.find((r) => r.id === Number(el.dataset.rowCat)).categoria = el.value;
     });
+  });
+}
+
+/* ---------- CORRIGIR MOVIMENTAÇÕES DO PORQUINHO JÁ IMPORTADAS ----------
+ * Para quem importou um extrato antes da detecção automática existir: procura, entre as
+ * transações já lançadas na Conta corrente, as que parecem ser aplicação/resgate do Porquinho
+ * e oferece convertê-las em transferência de verdade (a transação vira a perna da conta corrente
+ * e ganha uma perna irmã no cofre escolhido, na mesma data do lançamento original). */
+
+let fixPorquinhoRows = [];
+
+function scanPorquinhoSuspeitos() {
+  const candidatos = Store.data.transactions.filter(
+    (t) => !t.isTransferencia && !t.isSaldoInicial && (t.contaId || "corrente") === "corrente" && PORQUINHO_KEYWORDS.test(t.descricao)
+  );
+  fixPorquinhoRows = candidatos.map((t) => ({ txId: t.id, data: t.data, descricao: t.descricao, valor: t.valor, tipo: t.tipo, include: true, cofre: "porquinho" }));
+  renderFixPorquinhoPreview();
+  if (!fixPorquinhoRows.length) {
+    showToast("Nenhum lançamento suspeito encontrado na Conta corrente.");
+  } else {
+    showToast(`${fixPorquinhoRows.length} ${pluralLancamento(fixPorquinhoRows.length)} suspeito${fixPorquinhoRows.length === 1 ? "" : "s"} encontrado${fixPorquinhoRows.length === 1 ? "" : "s"}.`);
+  }
+}
+
+function renderFixPorquinhoPreview() {
+  const panel = document.getElementById("fixPorquinhoPanel");
+  panel.hidden = fixPorquinhoRows.length === 0;
+  if (!fixPorquinhoRows.length) return;
+
+  const included = fixPorquinhoRows.filter((r) => r.include).length;
+  document.getElementById("fixPorquinhoCount").textContent = `${fixPorquinhoRows.length} encontrados · ${included} selecionados`;
+
+  const tbody = document.getElementById("fixPorquinhoTableBody");
+  tbody.innerHTML = fixPorquinhoRows
+    .map(
+      (row) => `
+    <tr>
+      <td data-label="Corrigir"><input type="checkbox" data-fix-toggle="${row.txId}" ${row.include ? "checked" : ""}></td>
+      <td data-label="Data">${formatDate(row.data)}</td>
+      <td data-label="Descrição">${escapeHtml(row.descricao)}</td>
+      <td data-label="Tipo"><span class="type-tag ${row.tipo}">${row.tipo === "entrada" ? "Entrada" : "Saída"}</span></td>
+      <td data-label="Valor" class="align-right tx-value ${row.tipo}">${row.tipo === "entrada" ? "+" : "-"} ${formatCurrency(row.valor)}</td>
+      <td data-label="Cofre">
+        <select class="cell-input" data-fix-cofre="${row.txId}">${cofreOptionsHtml(row.cofre).replace('value="corrente"', 'value="corrente" disabled')}</select>
+      </td>
+    </tr>`
+    )
+    .join("");
+
+  tbody.querySelectorAll("[data-fix-toggle]").forEach((el) => {
+    el.addEventListener("change", () => {
+      fixPorquinhoRows.find((r) => r.txId === el.dataset.fixToggle).include = el.checked;
+      renderFixPorquinhoPreview();
+    });
+  });
+  tbody.querySelectorAll("[data-fix-cofre]").forEach((el) => {
+    el.addEventListener("change", () => {
+      fixPorquinhoRows.find((r) => r.txId === el.dataset.fixCofre).cofre = el.value;
+    });
+  });
+}
+
+function initFixPorquinho() {
+  document.getElementById("scanPorquinhoBtn").addEventListener("click", scanPorquinhoSuspeitos);
+
+  document.getElementById("fixPorquinhoCancel").addEventListener("click", () => {
+    fixPorquinhoRows = [];
+    document.getElementById("fixPorquinhoPanel").hidden = true;
+  });
+
+  document.getElementById("fixPorquinhoConfirm").addEventListener("click", () => {
+    const selecionados = fixPorquinhoRows.filter((r) => r.include);
+    if (!selecionados.length) {
+      showToast("Nenhum lançamento selecionado.");
+      return;
+    }
+    selecionados.forEach((row) => {
+      const original = Store.data.transactions.find((t) => t.id === row.txId);
+      if (!original) return;
+      const transferId = uid();
+      // a transação já existente vira a perna da conta corrente da transferência
+      Store.updateTransaction(original.id, { isTransferencia: true, transferId, categoria: "Transferência", isSalario: false });
+      // e ganha a perna irmã no cofre, na mesma data do lançamento original
+      const tipoOposto = original.tipo === "saida" ? "entrada" : "saida";
+      Store.addTransaction({
+        tipo: tipoOposto,
+        contaId: row.cofre,
+        valor: original.valor,
+        data: original.data,
+        categoria: "Transferência",
+        descricao:
+          original.tipo === "saida"
+            ? `Transferência de Conta corrente (${original.descricao})`
+            : `Transferência para Conta corrente (${original.descricao})`,
+        isTransferencia: true,
+        transferId,
+      });
+    });
+    showToast(`${selecionados.length} ${pluralLancamento(selecionados.length)} corrigido${selecionados.length === 1 ? "" : "s"} e lançado${selecionados.length === 1 ? "" : "s"} no cofre.`);
+    fixPorquinhoRows = [];
+    document.getElementById("fixPorquinhoPanel").hidden = true;
+    renderAll();
   });
 }

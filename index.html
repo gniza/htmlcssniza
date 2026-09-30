@@ -256,7 +256,7 @@
       <div class="panel">
         <h2>Importar extrato do Inter</h2>
         <p>No app ou Internet Banking do Inter: Conta digital → Extrato → escolha o período → Exportar em <strong>CSV</strong> ou <strong>OFX</strong>. Depois é só selecionar o arquivo aqui — você revisa e escolhe quais lançamentos entram antes de confirmar.</p>
-        <p class="modal-hint">Dica: se você já usa os botões "Guardar/Resgatar" dos Cofres para registrar transferências para o Porquinho, evite importar o mesmo período duas vezes — o extrato do banco também traz essas transferências, e elas podem entrar duplicadas.</p>
+        <p class="modal-hint">O importador tenta identificar sozinho movimentações do Porquinho (aplicação/resgate) e já sugere lançá-las como transferência para o cofre certo, em vez de como gasto ou receita comum — confira a coluna "Cofre" na revisão antes de confirmar. Se você já usa os botões "Guardar/Resgatar" dos Cofres pra isso, evite importar o mesmo período duas vezes.</p>
         <div class="btn-row">
           <label class="btn btn-primary file-btn">
             Selecionar arquivo (.csv ou .ofx)
@@ -289,6 +289,7 @@
               <th>Tipo</th>
               <th class="align-right">Valor</th>
               <th>Categoria</th>
+              <th>Cofre</th>
             </tr>
           </thead>
           <tbody id="extratoTableBody"></tbody>
@@ -297,6 +298,38 @@
         <div class="form-actions" style="margin-top:16px;">
           <button type="button" class="btn btn-ghost" id="extratoCancel">Cancelar</button>
           <button type="button" class="btn btn-primary" id="extratoConfirm">Importar selecionados</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Corrigir lançamentos do Porquinho já importados</h2>
+        <p>Se você importou um extrato antes dessa identificação automática existir, movimentações do Porquinho podem ter entrado como gasto ou receita comum na Conta corrente — isso deixa o saldo do mês e o saldo do cofre errados. Use o botão abaixo para encontrar esses lançamentos e transformá-los em transferência de verdade.</p>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="scanPorquinhoBtn">Procurar lançamentos suspeitos</button>
+        </div>
+      </div>
+
+      <div class="panel" id="fixPorquinhoPanel" hidden>
+        <div class="panel-header">
+          <h2>Lançamentos encontrados</h2>
+          <span id="fixPorquinhoCount" class="pocket-rate muted"></span>
+        </div>
+        <table class="tx-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th>Data</th>
+              <th>Descrição</th>
+              <th>Tipo</th>
+              <th class="align-right">Valor</th>
+              <th>Cofre</th>
+            </tr>
+          </thead>
+          <tbody id="fixPorquinhoTableBody"></tbody>
+        </table>
+        <div class="form-actions" style="margin-top:16px;">
+          <button type="button" class="btn btn-ghost" id="fixPorquinhoCancel">Cancelar</button>
+          <button type="button" class="btn btn-primary" id="fixPorquinhoConfirm">Corrigir selecionados</button>
         </div>
       </div>
     </section>

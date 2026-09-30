@@ -744,6 +744,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initFilters();
   initDados();
   initImportExtrato();
+  initFixPorquinho();
   renderAll();
 
   // redesenha os gráficos ao rotacionar o aparelho / redimensionar a janela
