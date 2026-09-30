@@ -252,6 +252,53 @@
           <button class="btn btn-danger" id="resetBtn">Apagar todos os dados</button>
         </div>
       </div>
+
+      <div class="panel">
+        <h2>Importar extrato do Inter</h2>
+        <p>No app ou Internet Banking do Inter: Conta digital → Extrato → escolha o período → Exportar em <strong>CSV</strong> ou <strong>OFX</strong>. Depois é só selecionar o arquivo aqui — você revisa e escolhe quais lançamentos entram antes de confirmar.</p>
+        <p class="modal-hint">Dica: se você já usa os botões "Guardar/Resgatar" dos Cofres para registrar transferências para o Porquinho, evite importar o mesmo período duas vezes — o extrato do banco também traz essas transferências, e elas podem entrar duplicadas.</p>
+        <div class="btn-row">
+          <label class="btn btn-primary file-btn">
+            Selecionar arquivo (.csv ou .ofx)
+            <input type="file" id="importExtratoInput" accept=".csv,.ofx,.txt" hidden>
+          </label>
+        </div>
+      </div>
+
+      <div class="panel" id="extratoPreviewPanel" hidden>
+        <div class="panel-header">
+          <h2>Revisar importação</h2>
+          <span id="extratoCount" class="pocket-rate muted"></span>
+        </div>
+
+        <div class="filters">
+          <select id="extratoConta">
+            <option value="corrente">Importar para: Conta corrente</option>
+            <option value="especie">Importar para: Dinheiro em espécie</option>
+          </select>
+          <button class="btn btn-ghost" id="extratoSelectAll">Selecionar todos</button>
+          <button class="btn btn-ghost" id="extratoSelectNone">Selecionar nenhum</button>
+        </div>
+
+        <table class="tx-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th>Data</th>
+              <th>Descrição</th>
+              <th>Tipo</th>
+              <th class="align-right">Valor</th>
+              <th>Categoria</th>
+            </tr>
+          </thead>
+          <tbody id="extratoTableBody"></tbody>
+        </table>
+
+        <div class="form-actions" style="margin-top:16px;">
+          <button type="button" class="btn btn-ghost" id="extratoCancel">Cancelar</button>
+          <button type="button" class="btn btn-primary" id="extratoConfirm">Importar selecionados</button>
+        </div>
+      </div>
     </section>
 
   </main>
@@ -419,6 +466,7 @@
 
 <script src="js/storage.js"></script>
 <script src="js/charts.js"></script>
+<script src="js/import.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

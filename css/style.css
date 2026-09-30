@@ -305,6 +305,8 @@ body {
 
   .tx-table td:last-child { padding-top: 8px; }
   .tx-table td:last-child::before { display: none; }
+
+  .tx-table .cell-input { flex: 1; min-width: 0; font-size: 16px; }
   .row-actions { width: 100%; justify-content: flex-end; }
 }
 
@@ -445,6 +447,17 @@ canvas { display: block; width: 100%; height: 220px; max-width: 100%; }
 }
 .tx-table tr:last-child td { border-bottom: none; }
 .align-right { text-align: right; }
+
+.tx-table input[type="checkbox"] { width: 18px; height: 18px; }
+.tx-table .cell-input {
+  width: 100%;
+  background: var(--bg-panel-soft);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+}
 
 .type-tag {
   display: inline-block;

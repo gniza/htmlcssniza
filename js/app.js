@@ -743,6 +743,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initMonthPicker();
   initFilters();
   initDados();
+  initImportExtrato();
   renderAll();
 
   // redesenha os gráficos ao rotacionar o aparelho / redimensionar a janela
